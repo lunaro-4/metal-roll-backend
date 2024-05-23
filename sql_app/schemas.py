@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 
-class Coil(BaseModel):
+class CoilModel(BaseModel):
     id : int
     length : float
     weight : float

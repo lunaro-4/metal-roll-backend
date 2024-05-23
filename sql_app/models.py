@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 
 from .database import Base
 
-class Coil(Base):
+class CoilBase(Base):
     __tablename__ = "coils"
     
     id = Column(Integer, primary_key=True)
@@ -11,5 +11,13 @@ class Coil(Base):
     weight = Column(Float)
     add_date = Column(Date)
     del_date = Column(Date, nullable=True)
+
+    def __init__(self, id, length, weight, add_date, del_date = None):
+        self.id = id
+        self.length = length
+        self.weight = weight
+        self.add_date = add_date
+        self.del_date = del_date
+
 
 

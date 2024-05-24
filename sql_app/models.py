@@ -20,4 +20,9 @@ class CoilBase(Base):
         self.del_date = del_date
 
 
+async def add_entry(coil, add_date, del_date):
+    new_coil = CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date)
+    # session.add(new_coil)
+    # await session.commit()
+    return new_coil
 

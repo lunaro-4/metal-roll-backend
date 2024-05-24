@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sql_app.schemas import CoilModel
-from sql_app.models import CoilBase
+from sql_app.models import CoilBase, add_entry
 from sql_app.database import create_db_and_tables, get_async_session
 
 
@@ -27,7 +27,9 @@ async def root_2():
 @app.get("/coil")
 async def get_coil_2(session : AsyncSession = Depends(get_async_session)):
     coils = await session.execute(select(CoilBase))
-    return [CoilModel(id = coil.id, length = coil.length, weight = coil.weight, add_date = str(coil.add_date), del_date=str(coil.del_date)) for coil in coils.scalars()]
+    return [CoilModel(id = coil.id,
+                      length = coil.length, weight = coil.weight,
+                      add_date = str(coil.add_date), del_date=str(coil.del_date)) for coil in coils.scalars()]
 
 
 
@@ -41,14 +43,13 @@ async def create_coil(coil : CoilModel, session : AsyncSession = Depends(get_asy
         if coil.del_date != None and coil.del_date != '':
             del_date = datetime.strptime(coil.del_date, DATE_FORMAT)
     except ValueError as ve:
-         # print(f"""Date format is not correct!
-         #       expected : "yyyy-MM-dd"
-         #       got: {coil.add_date} and {coil.del_date}""", '\n',str(ve))
          printerr(ve)
          raise HTTPException(status_code=400, detail="Incorrect date format")
 
-    session.add(CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date))
+    new_coil = CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date)
+    session.add(new_coil)
     await session.commit()
-    return coil
+    await session.refresh(new_coil)
+    return CoilModel(id = new_coil.id, length = new_coil.length, weight = new_coil.weight, add_date = str(new_coil.add_date), del_date=str(new_coil.del_date))
 
 

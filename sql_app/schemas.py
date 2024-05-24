@@ -11,5 +11,5 @@ class CoilModel(BaseModel):
     # del_date : Optional[str]
     del_date : str | None = None
 
-    class Config:
-        orm_mode = True
+    class ConfigDict:
+        from_atributes = True

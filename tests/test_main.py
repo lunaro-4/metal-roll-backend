@@ -1,40 +1,44 @@
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 import typing
-# import requests
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import pytest
 from fastapi.testclient import TestClient
-from sql_app.database import create_db_and_tables, get_async_session
 
-from .app.main import app
+from sql_app.database import get_db, session_manager
+# from sql_app import *
+from app import init_app
 
 
-SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///test_sql.db"
+SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite://./test_sql.db"
 
-Base = declarative_base()
 
-async_engine = create_async_engine(SQLALCHEMY_DATABASE_URL)
-async_session_maker = async_sessionmaker(async_engine)
+@pytest.fixture(autouse=True)
+def app():
+    with ExitStack():
+        yield init_app(prod_db = False)
 
-async def create_db_and_tables_ovvr():
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+@pytest.fixture
+def client(app):
+    yield TestClient(app)
 
-async def get_async_session_ovvr() -> typing.AsyncGenerator[AsyncSession, None]:
-    async with async_session_maker() as session:
-        yield session
-
-# app.dependency_overrides[create_db_and_tables] = create_db_and_tables_ovvr
-app.dependency_overrides[get_async_session] = get_async_session_ovvr 
-
-@asynccontextmanager
-async def lifespan(app):
-    await create_db_and_tables()
+@pytest.fixture(scope="session", autouse=True)
+async def connection_test():
+    session_manager.init(SQLALCHEMY_DATABASE_URL)
     yield
+    await session_manager.close()
+
+@pytest.fixture(autouse=True)
+async def creat_tables(connection_test):
+    connection = session_manager.connect() 
+    await session_manager.drop_db_and_tables(connection)
+    await session_manager.create_db_and_tables(connection)
 
 
-client = TestClient(app)
+@pytest.fixture(autouse=True)
+async def session_override(app, connection_test):
+    async def get_db_override():
+        yield session_manager.session()
 
+    app.dependency_overrides[get_db] = get_db_override
 
 def test_read_main():
     response = client.get("/")

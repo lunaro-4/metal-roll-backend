@@ -1,11 +1,10 @@
 from contextlib import asynccontextmanager
 import typing
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import DeclarativeBase, declarative_base
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
-
 
 
 Base = declarative_base()
@@ -43,17 +42,31 @@ class DatabaseSessionManager:
         if self.engine is None:
             raise Exception("Session Manager is not initialised!")
         async with self.engine.begin() as connection:
+            await connection
             try:
                 yield connection
             except Exception:
                 await connection.rollback()
                 raise
 
-    async def create_db_and_tables(self, connection: AsyncConnection):
-        await connection.run_sync(Base.metadata.create_all)
+    async def create_db_and_tables(self):
+        if self.engine is None:
+            raise Exception("Session Manager is not initialised!")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        # Base.metadata.create_all(bind=self.engine)
 
-    async def drop_db_and_tables(self, connection: AsyncConnection):
-        await connection.run_sync(Base.metadata.drop_all)
+    # async def drop_db_and_tables(self, connection: typing.AsyncGenerator):
+    #     await connection.asend(Base.metadata.drop_all)
+    
+    # async def create_db_and_tables(self, connection: AsyncConnection):
+    #     await connection.run_sync(Base.metadata.create_all)
+
+    async def drop_db_and_tables(self):
+        if self.engine is None:
+            raise Exception("Session Manager is not initialised!")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
 session_manager = DatabaseSessionManager()
 

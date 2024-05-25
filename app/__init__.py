@@ -11,6 +11,7 @@ def init_app(prod_db = True):
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
+            await session_manager.create_db_and_tables()
             yield
             if session_manager.engine is not None:
                 await session_manager.close()
@@ -18,7 +19,7 @@ def init_app(prod_db = True):
     app = FastAPI(lifespan=lifespan)
 
 
-    from .main import router
+    from .views import router
 
     app.include_router(router)
 

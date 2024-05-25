@@ -1,15 +1,16 @@
 from pydantic import BaseModel
-from typing import Optional
 
 
 
-class CoilModel(BaseModel):
-    id : int  = 0  
+class CoilInputModel(BaseModel):
     length : float
     weight : float
     add_date : str | None = None
-    # del_date : Optional[str]
     del_date : str | None = None
 
     class ConfigDict:
         from_atributes = True
+
+
+class CoilModel(CoilInputModel):
+    id : int  = 0  

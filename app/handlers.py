@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from sqlalchemy import Result, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,12 +38,21 @@ async def handle_add_coil(coil : CoilInputModel, session : AsyncSession):
         del_date = None
         if coil.del_date != None and coil.del_date != '':
             del_date = datetime.strptime(coil.del_date, DATE_FORMAT)
+
+        if add_date == None:
+            raise AssertionError
+
+        if del_date != None and add_date > del_date:
+            raise AssertionError
     except ValueError as ve:
          printerr(ve)
          raise HTTPException(status_code=400, detail="Incorrect date format")
+    except AssertionError as ae:
+        printerr(ae)
+        raise HTTPException(status_code=400, detail="Item was deleted before added")
     except Exception as e:
-         printerr(e)
-         raise HTTPException(status_code=503, detail="Unexpected error occured")
+        printerr(e)
+        raise HTTPException(status_code=503, detail="Unexpected error occured")
 
     new_coil = CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date)
     session.add(new_coil)
@@ -75,11 +84,57 @@ async def handle_delete_coil(coil_id : int, session : AsyncSession):
     # return {"result" : "123"}
 
 
-async def get_all_coil_stats(session : AsyncSession):
-    return []
+async def handle_get_coil_stats(start_date : datetime, end_date : datetime, session : AsyncSession):
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+    coils_by_add_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
+    coils_by_del_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
+    result = coils_by_add_date.merge(coils_by_del_date)
+
+    return result
+
+
+def separate_stats_data(coil_stats : Result):
+    coil_length_list = []
+    coil_weight_list = []
+    coil_add_del_dict = {}
+    for coil in coil_stats.scalars():
+        coil_length_list.append(float(coil.length))
+        coil_weight_list.append(float(coil.weight))
+        coil_add_del_dict[coil.add_date] = coil.del_date
+    return (coil_length_list, coil_weight_list, coil_add_del_dict)
+        
+def calculate_stats_from_list(stat_list : list):
+    stat_max = 0
+    stat_min = None
+    stat_sum = 0
+    for stat in stat_list:
+        stat_sum += stat
+        if stat > stat_max:
+            stat_max = stat
+        if stat_min == None or stat < stat_min:
+            stat_min = stat
+
+    stat_avg = stat_sum / len(stat_list)
+
+    return (stat_max, stat_min, stat_avg, stat_sum)
 
 
 
+def find_gaps(coil_add_del_dict: dict):
+
+    max_gap = 0
+    min_gap = None
+
+    for coil in coil_add_del_dict.keys():
+        delta = coil_add_del_dict[coil] - coil
+        if max_gap < delta.days:
+            max_gap = delta.days
+        if min_gap == None or min_gap > delta.days:
+            min_gap = delta.days
+        
+        
+    return (max_gap, min_gap)
 
 
 

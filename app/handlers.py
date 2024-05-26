@@ -115,7 +115,7 @@ async def handle_delete_coil(coil_id : int, session : AsyncSession):
     return coil_to_remove
 
 
-async def handle_get_coil_stats(start_date : datetime, end_date : datetime, session : AsyncSession):
+async def handle_get_coil_stats(start_date : datetime, end_date : datetime, session : AsyncSession) -> Result:
     query_add = select(CoilBase)
     query_del = select(CoilBase)
     if start_date:
@@ -136,7 +136,7 @@ async def handle_get_coil_stats(start_date : datetime, end_date : datetime, sess
 
     return result
 
-async def count_by_param(session : AsyncSession, param, start_date : datetime | None = None, end_date : datetime | None = None):
+async def count_by_param(session : AsyncSession, param, start_date : datetime | None = None, end_date : datetime | None = None) -> int:
     querry = select(CoilBase)
     if start_date:
        querry = querry.filter(param >= start_date) 
@@ -147,7 +147,7 @@ async def count_by_param(session : AsyncSession, param, start_date : datetime | 
 
 
 
-def separate_stats_data(coil_stats : Result):
+def separate_stats_data(coil_stats : Result) -> tuple[list, list, dict]:
     coil_length_list = []
     coil_weight_list = []
     coil_add_del_dict = {}
@@ -157,7 +157,7 @@ def separate_stats_data(coil_stats : Result):
         coil_add_del_dict[coil.add_date] = coil.del_date
     return (coil_length_list, coil_weight_list, coil_add_del_dict)
         
-def calculate_stats_from_list(stat_list : list):
+def calculate_stats_from_list(stat_list : list) -> tuple[int | None , int | None , int | None , int | None ]:
     if len(stat_list) <= 0:
         return (None, None, None, None)
     stat_max = 0
@@ -176,7 +176,7 @@ def calculate_stats_from_list(stat_list : list):
 
 
 
-def find_gaps(coil_add_del_dict: dict):
+def find_gaps(coil_add_del_dict: dict) -> tuple[int | None, int | None]:
 
     max_gap = 0
     min_gap = None
@@ -190,18 +190,22 @@ def find_gaps(coil_add_del_dict: dict):
         if min_gap == None or min_gap > delta.days:
             min_gap = delta.days
         
+    if max_gap == None or max_gap == 0:
+        max_gap = None
+    if min_gap == None or min_gap == 0:
+        min_gap = None
         
     return (max_gap, min_gap)
 
 
 
-async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetime | None = None, end_date : datetime | None = None):
+async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetime | None = None, end_date : datetime | None = None) -> tuple[int | None, datetime | None, datetime | None]:
     # насколько я понял из задания, требуется отфильтровать рулоны, 
     # которые были добавлены после начала периода, но не были удалены до конца
     query = select(CoilBase)
     query_find_limits = select(CoilBase).order_by(CoilBase.add_date).filter(CoilBase.add_date != None)
     if end_date != None:
-        query = query.filter(or_(CoilBase.del_date == None, CoilBase.del_date >= end_date))
+        query = query.filter(or_(CoilBase.del_date == None, CoilBase.del_date <= end_date)).filter(CoilBase.add_date <= end_date)
         query_find_limits = query_find_limits.filter(CoilBase.add_date <=end_date)
     if start_date != None:
         query = query.filter(CoilBase.add_date != None).filter(CoilBase.add_date >= start_date)
@@ -218,7 +222,6 @@ async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetim
 
     day_delta_map = {}
     coil_list = list(coil_ordered_list.all())
-    # print(coil_list)
     for coil_ind in range(len(coil_list)):
         coil = coil_list[coil_ind][0]
         coil_del = coil.del_date
@@ -231,14 +234,11 @@ async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetim
             day_delta_map[coil_add] += coil.weight
         else:
             day_delta_map[coil_add] = coil.weight
-        # print(coil.add_date)
-        # current_date = coil.add_date
-        pass
+
     max_weight_date = None
     max_weight_count = 0
     min_weight_date = None
     min_weight_count = None
-
     running_mass = 0
     if None in day_delta_map.keys():
         day_delta_map.pop(None)
@@ -254,6 +254,6 @@ async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetim
             if min_weight_count == None or min_weight_count > running_mass:
                 min_weight_count = running_mass
                 min_weight_date = day
-    return sum_weight
+    return (sum_weight, max_weight_date, min_weight_date)
 
 

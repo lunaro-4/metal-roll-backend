@@ -1,7 +1,5 @@
-from contextlib import ExitStack, asynccontextmanager
-import typing
+from contextlib import ExitStack
 import pytest
-import asyncio
 from fastapi.testclient import TestClient
 
 from sql_app.database import get_db, session_manager
@@ -16,7 +14,8 @@ SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite://./test_sql.db"
 @pytest.fixture(autouse=True)
 def app():
     with ExitStack():
-        yield init_app(prod_db = False)
+        yield init_app(prod_db=False)
+
 
 @pytest.fixture
 def client(app):
@@ -30,17 +29,15 @@ async def connection_test():
     await session_manager.close()
 
 
-
-
 @pytest.fixture(scope="function", autouse=True)
 async def session_override(app, connection_test):
     async def get_db_override():
         yield session_manager.session()
     app.dependency_overrides[get_db] = get_db_override
 
+
 @pytest.fixture(scope="function", autouse=True)
 async def create_tables(connection_test, session_manager):
-    connection = session_manager.connect() 
+    connection = session_manager.connect()
     await session_manager.drop_db_and_tables(connection)
     await session_manager.create_db_and_tables(connection)
-

@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    database_path : str
+    database_path : str = '/sql_app.db'
+    date_format : str = "%Y-%m-%d"
     model_config = SettingsConfigDict(env_file=".env")
 
 settings = Settings()

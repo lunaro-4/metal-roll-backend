@@ -13,7 +13,7 @@ def printerr(err):
     print('---\n',err,'\n---')
 
 def incorrect_data_format(param):
-    raise HTTPException(status_code=400, detail=f"{param} must be non-negative")
+    raise HTTPException(status_code=400, detail=f"{param} must be more than 0")
 
 async def get_all_coil(session : AsyncSession,
                        id_start : int | None = None, id_end : int | None = None,
@@ -23,30 +23,32 @@ async def get_all_coil(session : AsyncSession,
                        del_date_start : datetime | None = None, del_date_end : datetime | None = None,):
 
     query = select(CoilBase)
+    # print(id_start)
+    # id_start = str(id_start)
 
-    if id_start:
+    if id_start != None:
         if id_start < 0:
             incorrect_data_format('id')
-            query = query.filter(CoilBase.id >= id_start)
+        query = query.filter(CoilBase.id >= id_start)
     if id_end:
         if id_end < 0:
             incorrect_data_format('id')
         query = query.filter(CoilBase.id <= id_end)
     if length_start:
         if length_start < 0:
-            incorrect_data_format('id')
+            incorrect_data_format('Lenght')
         query = query.filter(CoilBase.length >= length_start)
     if length_end:
         if length_end < 0:
-            incorrect_data_format('id')
+            incorrect_data_format('Lenght')
         query = query.filter(CoilBase.length <= length_end)
     if weight_start:
         if weight_start < 0:
-            incorrect_data_format('id')
+            incorrect_data_format('Weight')
         query = query.filter(CoilBase.weight >= weight_start)
     if weight_end:
         if weight_end < 0:
-            incorrect_data_format('id')
+            incorrect_data_format('Weight')
         query = query.filter(CoilBase.weight <= weight_end)
     if add_date_start:
         query = query.filter(CoilBase.add_date >= add_date_start)
@@ -74,6 +76,8 @@ async def get_all_coil(session : AsyncSession,
 
 async def handle_add_coil(coil : CoilInputModel, session : AsyncSession, add_date : datetime | None = None, del_date : datetime | None = None):
     new_coil = CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date)
+    if coil.length <= 0 or coil.weight <= 0:
+        incorrect_data_format('Lenght and weight')
     try:
         session.add(new_coil)
         await session.commit()
@@ -112,10 +116,17 @@ async def handle_delete_coil(coil_id : int, session : AsyncSession):
 
 
 async def handle_get_coil_stats(start_date : datetime, end_date : datetime, session : AsyncSession):
-
+    query_add = select(CoilBase)
+    query_del = select(CoilBase)
+    if start_date:
+        query_add = query_add.filter(CoilBase.add_date >= start_date)
+        query_del = query_del.filter(CoilBase.del_date >= start_date)
+    if end_date:
+        query_add = query_add.filter(CoilBase.add_date <= end_date)
+        query_del = query_del.filter(CoilBase.del_date <= end_date)
     try:
-        coils_by_add_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
-        coils_by_del_date = await session.execute(select(CoilBase).filter(CoilBase.del_date >= start_date).filter(CoilBase.del_date <= end_date))
+        coils_by_add_date = await session.execute(query_add)
+        coils_by_del_date = await session.execute(query_del)
     except OperationalError as oe:
         await session.rollback()
         printerr(oe)
@@ -147,6 +158,8 @@ def separate_stats_data(coil_stats : Result):
     return (coil_length_list, coil_weight_list, coil_add_del_dict)
         
 def calculate_stats_from_list(stat_list : list):
+    if len(stat_list) <= 0:
+        return (None, None, None, None)
     stat_max = 0
     stat_min = None
     stat_sum = 0
@@ -182,13 +195,65 @@ def find_gaps(coil_add_del_dict: dict):
 
 
 
-async def calculate_sum_coil_weight(start_date : datetime, end_date : datetime, session : AsyncSession):
+async def calculate_sum_coil_weight(session : AsyncSession, start_date : datetime | None = None, end_date : datetime | None = None):
     # насколько я понял из задания, требуется отфильтровать рулоны, 
     # которые были добавлены после начала периода, но не были удалены до конца
-    coils = await session.execute(select(CoilBase).filter(or_(CoilBase.del_date >= end_date, CoilBase.del_date == None)).filter(CoilBase.add_date != None))
+    query = select(CoilBase)
+    query_find_limits = select(CoilBase).order_by(CoilBase.add_date).filter(CoilBase.add_date != None)
+    if end_date != None:
+        query = query.filter(or_(CoilBase.del_date == None, CoilBase.del_date >= end_date))
+        query_find_limits = query_find_limits.filter(CoilBase.add_date <=end_date)
+    if start_date != None:
+        query = query.filter(CoilBase.add_date != None).filter(CoilBase.add_date >= start_date)
+    try:
+        coils = await session.execute(query)
+        coil_ordered_list = await session.execute(query_find_limits)
+    except OperationalError as oe:
+        await session.rollback()
+        printerr(oe)
+        raise HTTPException(status_code=503, detail="Database unavailable")
     sum_weight = 0
     for coil in coils.scalars():
         sum_weight += coil.weight
+
+    day_delta_map = {}
+    coil_list = list(coil_ordered_list.all())
+    # print(coil_list)
+    for coil_ind in range(len(coil_list)):
+        coil = coil_list[coil_ind][0]
+        coil_del = coil.del_date
+        if coil_del in day_delta_map.keys():
+            day_delta_map[coil_del] -= coil.weight
+        else:
+            day_delta_map[coil_del] = -coil.weight
+        coil_add = coil.add_date
+        if coil_add in day_delta_map.keys():
+            day_delta_map[coil_add] += coil.weight
+        else:
+            day_delta_map[coil_add] = coil.weight
+        # print(coil.add_date)
+        # current_date = coil.add_date
+        pass
+    max_weight_date = None
+    max_weight_count = 0
+    min_weight_date = None
+    min_weight_count = None
+
+    running_mass = 0
+    if None in day_delta_map.keys():
+        day_delta_map.pop(None)
+    for day in sorted(day_delta_map.keys()):
+        running_mass += day_delta_map[day]
+        is_day_before_end = end_date == None or day <= end_date.date()
+        is_day_afrer_start = start_date == None or day >= start_date.date()
+        is_day_in_range = is_day_before_end and is_day_afrer_start
+        if is_day_in_range:
+            if max_weight_count < running_mass:
+                max_weight_count = running_mass
+                max_weight_date = day
+            if min_weight_count == None or min_weight_count > running_mass:
+                min_weight_count = running_mass
+                min_weight_date = day
     return sum_weight
 
 

@@ -8,8 +8,9 @@ from sql_app.database import get_db
 
 from .handlers import *
 
+from . import settings
 
-DATE_FORMAT = "%Y-%m-%d"
+DATE_FORMAT = settings.date_format
 
 router =  APIRouter()
 
@@ -29,9 +30,17 @@ async def get_coil(id_start : int | None = None, id_end : int | None = None,
                    del_date_start : str | None = None, del_date_end : str | None = None,
                    session : AsyncSession = Depends(get_db)):
 
-    # Проверяем на соответствие формату
+    # меняем значения местами, в случае если случайно передали обратный порядок
+
+    if id_start and id_end and id_start > id_end:
+        id_start, id_end = id_end, id_start
+    if length_start and length_end and length_start > length_end:
+        length_start, length_end = length_end, length_start
+    if weight_start and weight_end and weight_start > weight_end:
+        weight_start, weight_end = weight_end, weight_start
 
     
+    # Проверяем на соответствие формату
     if add_date_start:
         try:
             add_date_start = datetime.strptime(add_date_start, DATE_FORMAT)
@@ -94,7 +103,6 @@ async def delete_coil(coil_id: int, session : AsyncSession = Depends(get_db)):
     result = await handle_delete_coil(coil_id, session)
     return result
 
-    # return CoilModel(id = coil_to_remove.id, length = coil_to_remove.length, weight = coil_to_remove.weight, add_date = str(coil_to_remove.add_date), del_date=str(coil_to_remove.del_date))
 
     
 @router.get("/coil/stats")
@@ -122,7 +130,7 @@ async def get_coil_stats(session : AsyncSession = Depends(get_db), start_date : 
     (coil_len_max, coil_len_min, coil_len_avg, coil_len_sum) = calculate_stats_from_list(coil_length_list)
     (coil_weight_max, coil_weight_min, coil_weight_avg, coil_weight_sum) = calculate_stats_from_list(coil_weight_list)
 
-    coil_weight_sum_fixed = await calculate_sum_coil_weight(datetime_start, datetime_end, session)
+    coil_weight_sum_fixed = await calculate_sum_coil_weight(start_date=datetime_start, end_date=datetime_end, session=session)
 
     (max_add_del_gap, min_add_del_gap) = find_gaps(coil_add_del_dict)
 
@@ -136,7 +144,7 @@ async def get_coil_stats(session : AsyncSession = Depends(get_db), start_date : 
             "avg_weight" : coil_weight_avg,
             "max_weight" : coil_weight_max,
             "min_weight" : coil_weight_min,
-            "sum_weight_in_gap" : coil_weight_sum_fixed,
+            "sum_weight_in_range" : coil_weight_sum_fixed,
             "max_add_del_gap" : max_add_del_gap,
             "min_add_del_gap" : min_add_del_gap
     }

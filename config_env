@@ -1,0 +1,2 @@
+DATABASE_PATH="/sql_app.db"
+DATE_FORMAT="%Y-%m-%d"

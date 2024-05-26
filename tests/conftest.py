@@ -8,6 +8,8 @@ from sql_app.database import get_db, session_manager
 from app import init_app
 
 
+# tests can't find app, and does not work anyway, so I gave up (
+
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite://./test_sql.db"
 
 

@@ -1,97 +1,139 @@
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
-from sqlalchemy import Result, delete, select
+from datetime import datetime
+from fastapi import HTTPException
+
+from sqlalchemy import Result, delete, or_, select
+from sqlalchemy.exc import  NoResultFound, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound, OperationalError, ResourceClosedError
 
 from sql_app.schemas import CoilInputModel, CoilModel
 from sql_app.models import CoilBase
-from sql_app.database import get_db 
 
-
-DATE_FORMAT = "%Y-%m-%d"
 
 def printerr(err):
     print('---\n',err,'\n---')
 
+def incorrect_data_format(param):
+    raise HTTPException(status_code=400, detail=f"{param} must be non-negative")
 
-async def get_all_coil(session : AsyncSession):
+async def get_all_coil(session : AsyncSession,
+                       id_start : int | None = None, id_end : int | None = None,
+                       length_start : float | None = None, length_end : float | None = None,
+                       weight_start : float | None = None, weight_end : float | None = None,
+                       add_date_start : datetime | None = None, add_date_end : datetime | None = None,
+                       del_date_start : datetime | None = None, del_date_end : datetime | None = None,):
+
+    query = select(CoilBase)
+
+    if id_start:
+        if id_start < 0:
+            incorrect_data_format('id')
+            query = query.filter(CoilBase.id >= id_start)
+    if id_end:
+        if id_end < 0:
+            incorrect_data_format('id')
+        query = query.filter(CoilBase.id <= id_end)
+    if length_start:
+        if length_start < 0:
+            incorrect_data_format('id')
+        query = query.filter(CoilBase.length >= length_start)
+    if length_end:
+        if length_end < 0:
+            incorrect_data_format('id')
+        query = query.filter(CoilBase.length <= length_end)
+    if weight_start:
+        if weight_start < 0:
+            incorrect_data_format('id')
+        query = query.filter(CoilBase.weight >= weight_start)
+    if weight_end:
+        if weight_end < 0:
+            incorrect_data_format('id')
+        query = query.filter(CoilBase.weight <= weight_end)
+    if add_date_start:
+        query = query.filter(CoilBase.add_date >= add_date_start)
+    if add_date_end:
+        query = query.filter(CoilBase.add_date <= add_date_end)
+    if del_date_start:
+        query = query.filter(CoilBase.del_date >= del_date_start)
+    if del_date_end:
+        query = query.filter(CoilBase.del_date <= del_date_end)
+
     try:
-        coils = await session.execute(select(CoilBase))
+        coils = await session.execute(query)
     except OperationalError as oe:
+        await session.rollback()
         printerr(oe)
         raise HTTPException(status_code=503, detail="Database unavailable")
     except Exception as e:
          printerr(e)
          raise HTTPException(status_code=503, detail="Unexpected error occured")
+
     return [CoilModel(id = coil.id,
                       length = coil.length, weight = coil.weight,
                       add_date = str(coil.add_date), del_date=str(coil.del_date)) for coil in coils.scalars()]
 
 
-async def handle_add_coil(coil : CoilInputModel, session : AsyncSession):
-    try:
-        add_date = None
-        if coil.add_date != None and coil.add_date != '':
-            add_date = datetime.strptime(coil.add_date, DATE_FORMAT)
-        del_date = None
-        if coil.del_date != None and coil.del_date != '':
-            del_date = datetime.strptime(coil.del_date, DATE_FORMAT)
-
-        if add_date == None:
-            raise AssertionError
-
-        if del_date != None and add_date > del_date:
-            raise AssertionError
-    except ValueError as ve:
-         printerr(ve)
-         raise HTTPException(status_code=400, detail="Incorrect date format")
-    except AssertionError as ae:
-        printerr(ae)
-        raise HTTPException(status_code=400, detail="Item was deleted before added")
-    except Exception as e:
-        printerr(e)
-        raise HTTPException(status_code=503, detail="Unexpected error occured")
-
+async def handle_add_coil(coil : CoilInputModel, session : AsyncSession, add_date : datetime | None = None, del_date : datetime | None = None):
     new_coil = CoilBase(length = coil.length, weight = coil.weight, add_date = add_date, del_date=del_date)
-    session.add(new_coil)
-    await session.commit()
-    await session.refresh(new_coil)
+    try:
+        session.add(new_coil)
+        await session.commit()
+        await session.refresh(new_coil)
+    except OperationalError as oe:
+        await session.rollback()
+        printerr(oe)
+        raise HTTPException(status_code=503, detail="Database unavailable")
     return CoilModel(id = new_coil.id,
                      length = new_coil.length, weight = new_coil.weight,
                      add_date = str(new_coil.add_date), del_date=str(new_coil.del_date))
 
 
 async def handle_delete_coil(coil_id : int, session : AsyncSession):
-    coil_to_remove = await session.execute(select(CoilBase).filter_by(id = coil_id))
+
+    # проверка на неотрицательность id не требуется, 
+    # поскольку запрос все равно ничего не найдет по отрицательному id
+
     try:
+        coil_to_remove = await session.execute(select(CoilBase).filter_by(id = coil_id))
         coil_to_remove = coil_to_remove.scalar_one()
         await session.execute(delete(CoilBase).filter_by(id = coil_id))
         await session.commit()
         coil_to_remove = CoilModel(id = coil_to_remove.id, 
                              length = coil_to_remove.length, weight = coil_to_remove.weight,
                              add_date = str(coil_to_remove.add_date), del_date=str(coil_to_remove.del_date))
-        # await session.refresh(coil_to_remove)
     except NoResultFound as nrf:
          printerr(nrf)
          raise HTTPException(status_code=400, detail="Metall roll with this ID not found")
-    # except Exception as e:
-    #      printerr(e)
-    #      raise HTTPException(status_code=503, detail="Unexpected error occured")
+    except OperationalError as oe:
+        await session.rollback()
+        printerr(oe)
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
     return coil_to_remove
-    # return {"result" : "123"}
 
 
 async def handle_get_coil_stats(start_date : datetime, end_date : datetime, session : AsyncSession):
-    if start_date > end_date:
-        start_date, end_date = end_date, start_date
-    coils_by_add_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
-    coils_by_del_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
+
+    try:
+        coils_by_add_date = await session.execute(select(CoilBase).filter(CoilBase.add_date >= start_date).filter(CoilBase.add_date <= end_date))
+        coils_by_del_date = await session.execute(select(CoilBase).filter(CoilBase.del_date >= start_date).filter(CoilBase.del_date <= end_date))
+    except OperationalError as oe:
+        await session.rollback()
+        printerr(oe)
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
     result = coils_by_add_date.merge(coils_by_del_date)
 
     return result
+
+async def count_by_param(session : AsyncSession, param, start_date : datetime | None = None, end_date : datetime | None = None):
+    querry = select(CoilBase)
+    if start_date:
+       querry = querry.filter(param >= start_date) 
+    if end_date:
+        querry = querry.filter(param <= end_date)
+    amount = await session.execute(querry)
+    return len(amount.all())
+
 
 
 def separate_stats_data(coil_stats : Result):
@@ -127,6 +169,8 @@ def find_gaps(coil_add_del_dict: dict):
     min_gap = None
 
     for coil in coil_add_del_dict.keys():
+        if coil == None or coil_add_del_dict[coil] == None:
+            continue
         delta = coil_add_del_dict[coil] - coil
         if max_gap < delta.days:
             max_gap = delta.days
@@ -136,5 +180,15 @@ def find_gaps(coil_add_del_dict: dict):
         
     return (max_gap, min_gap)
 
+
+
+async def calculate_sum_coil_weight(start_date : datetime, end_date : datetime, session : AsyncSession):
+    # насколько я понял из задания, требуется отфильтровать рулоны, 
+    # которые были добавлены после начала периода, но не были удалены до конца
+    coils = await session.execute(select(CoilBase).filter(or_(CoilBase.del_date >= end_date, CoilBase.del_date == None)).filter(CoilBase.add_date != None))
+    sum_weight = 0
+    for coil in coils.scalars():
+        sum_weight += coil.weight
+    return sum_weight
 
 

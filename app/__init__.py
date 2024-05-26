@@ -1,13 +1,21 @@
 from contextlib import asynccontextmanager
 from sql_app.database import session_manager
-
 from fastapi import FastAPI
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    database_path : str
+    model_config = SettingsConfigDict(env_file=".env")
+
+settings = Settings()
 
 def init_app(prod_db = True):
+    db = "sqlite+aiosqlite://" + settings.database_path
+
     lifespan = None
 
     if prod_db:
-        session_manager.init()
+        session_manager.init(db)
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
@@ -25,4 +33,3 @@ def init_app(prod_db = True):
 
     return app
 
-# app = init_app()

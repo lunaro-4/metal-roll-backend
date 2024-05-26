@@ -3,17 +3,21 @@ from sql_app.database import session_manager
 from fastapi import FastAPI
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
-    database_path : str = '/sql_app.db'
-    date_format : str = "%Y-%m-%d"
+    database_path: str = '/sql_app.db'
+    date_format: str = "%Y-%m-%d"
     model_config = SettingsConfigDict(env_file=".env")
+
 
 settings = Settings()
 
-def init_app(prod_db = True):
+
+def init_app(prod_db=True):
     db = "sqlite+aiosqlite://" + settings.database_path
 
     lifespan = None
+    print(lifespan, end='')
 
     if prod_db:
         session_manager.init(db)
@@ -27,10 +31,8 @@ def init_app(prod_db = True):
 
     app = FastAPI(lifespan=lifespan)
 
-
     from .views import router
 
     app.include_router(router)
 
     return app
-
